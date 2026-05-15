@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>History — MRCP MCQ</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<nav class="navbar">
+  <a href="/static/dashboard.html" class="navbar-brand">MRCP <span>MCQ</span></a>
+  <div class="nav-links">
+    <a href="/static/dashboard.html">Dashboard</a>
+    <button class="btn btn-outline" onclick="logout()"
+            style="color:#fff;border-color:rgba(255,255,255,.35);padding:.4rem 1rem">Sign Out</button>
+  </div>
+</nav>
+
+<div class="container-lg">
+  <div class="card mt-3">
+    <div class="card-header">
+      Quiz History
+      <a href="/static/dashboard.html" class="btn btn-primary" style="font-size:.85rem;padding:.4rem 1rem">
+        New Quiz
+      </a>
+    </div>
+    <div id="historyBody">
+      <p class="text-muted text-center" style="padding:2rem">Loading…</p>
+    </div>
+  </div>
+</div>
+
+<script src="/static/config.js"></script>
+<script src="/static/app.js"></script>
+<script>
+  requireAuth();
+
+  api("GET", "/history").then(sessions => {
+    const el = document.getElementById("historyBody");
+    if (!sessions.length) {
+      el.innerHTML = `
+        <p class="text-muted text-center" style="padding:2rem">
+          No quiz history yet.
+          <a href="/static/dashboard.html">Take your first quiz →</a>
+        </p>`;
+      return;
+    }
+    el.innerHTML = `
+      <div style="overflow-x:auto">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Topic</th>
+              <th>Date</th>
+              <th>Score</th>
+              <th>Time limit</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${sessions.map((s, i) => {
+              const pct = s.total ? Math.round(s.score / s.total * 100) : 0;
+              return `
+                <tr>
+                  <td>${i + 1}</td>
+                  <td>${escapeHtml(s.topic_filter) || '<em style="color:var(--muted)">All Topics</em>'}</td>
+                  <td>${formatDate(s.started_at)}</td>
+                  <td>
+                    <span class="badge ${scoreBadgeClass(s.score, s.total)}">
+                      ${s.score}/${s.total} (${pct}%)
+                    </span>
+                  </td>
+                  <td>${formatDuration(s.time_limit_seconds)}</td>
+                  <td>
+                    <a href="/static/results.html?session=${s.session_id}"
+                       class="btn btn-outline"
+                       style="padding:.3rem .8rem;font-size:.8rem">Review</a>
+                  </td>
+                </tr>`;
+            }).join("")}
+          </tbody>
+        </table>
+      </div>`;
+  }).catch(err => {
+    document.getElementById("historyBody").innerHTML =
+      `<p class="text-danger text-center" style="padding:2rem">${escapeHtml(err.message)}</p>`;
+  });
+</script>
+</body>
+</html>

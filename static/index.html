@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MRCP MCQ Portal</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<div class="login-wrapper">
+  <div class="login-card">
+    <div class="login-logo">
+      <h1>MRCP <span>MCQ</span></h1>
+      <p>Medical Question Practice Portal</p>
+    </div>
+
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="login">Sign In</button>
+      <button class="tab-btn" data-tab="register">Register</button>
+    </div>
+
+    <div id="alert" class="alert hidden"></div>
+
+    <!-- Login -->
+    <div id="tab-login">
+      <form id="loginForm" autocomplete="on">
+        <div class="form-group">
+          <label class="form-label">Email address</label>
+          <input type="email" id="loginEmail" class="form-control" required autocomplete="email">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Password</label>
+          <input type="password" id="loginPassword" class="form-control" required autocomplete="current-password">
+        </div>
+        <button type="submit" class="btn btn-primary btn-block btn-lg">Sign In</button>
+      </form>
+    </div>
+
+    <!-- Register -->
+    <div id="tab-register" class="hidden">
+      <form id="registerForm" autocomplete="on">
+        <div class="form-group">
+          <label class="form-label">Email address</label>
+          <input type="email" id="regEmail" class="form-control" required autocomplete="email">
+        </div>
+        <div class="form-group">
+          <label class="form-label">
+            Password
+            <span class="text-muted" style="font-weight:400;font-size:.8rem"> — min 8 characters</span>
+          </label>
+          <input type="password" id="regPwd" class="form-control" required minlength="8" autocomplete="new-password">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Confirm password</label>
+          <input type="password" id="regConfirm" class="form-control" required autocomplete="new-password">
+        </div>
+        <button type="submit" class="btn btn-success btn-block btn-lg">Create Account</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script src="/static/config.js"></script>
+<script src="/static/app.js"></script>
+<script>
+  // Already logged in?
+  if (getToken()) window.location.href = "/static/dashboard.html";
+
+  // Tab switching
+  document.querySelectorAll(".tab-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      const t = btn.dataset.tab;
+      document.getElementById("tab-login").classList.toggle("hidden", t !== "login");
+      document.getElementById("tab-register").classList.toggle("hidden", t !== "register");
+      hideAlert("alert");
+    });
+  });
+
+  // Sign in
+  document.getElementById("loginForm").addEventListener("submit", async e => {
+    e.preventDefault();
+    hideAlert("alert");
+    const btn = e.target.querySelector("button[type=submit]");
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>Signing in…';
+    try {
+      const d = await api("POST", "/auth/login", {
+        email: document.getElementById("loginEmail").value.trim(),
+        password: document.getElementById("loginPassword").value,
+      }, false);
+      setToken(d.access_token);
+      window.location.href = "/static/dashboard.html";
+    } catch (err) {
+      showAlert("alert", err.message);
+      btn.disabled = false;
+      btn.textContent = "Sign In";
+    }
+  });
+
+  // Register
+  document.getElementById("registerForm").addEventListener("submit", async e => {
+    e.preventDefault();
+    hideAlert("alert");
+    const pwd = document.getElementById("regPwd").value;
+    if (pwd !== document.getElementById("regConfirm").value) {
+      showAlert("alert", "Passwords do not match");
+      return;
+    }
+    const btn = e.target.querySelector("button[type=submit]");
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>Creating account…';
+    try {
+      const d = await api("POST", "/auth/register", {
+        email: document.getElementById("regEmail").value.trim(),
+        password: pwd,
+      }, false);
+      setToken(d.access_token);
+      window.location.href = "/static/dashboard.html";
+    } catch (err) {
+      showAlert("alert", err.message);
+      btn.disabled = false;
+      btn.textContent = "Create Account";
+    }
+  });
+</script>
+</body>
+</html>

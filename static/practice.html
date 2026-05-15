@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Practice — MRCP MCQ</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<div class="quiz-bar">
+  <div>
+    <div class="progress-label">Practice Mode</div>
+    <div class="progress-text" id="progressText">Loading…</div>
+  </div>
+  <div style="display:flex;align-items:center;gap:.75rem">
+    <span id="scoreLive" class="badge badge-success" style="font-size:.85rem">0 / 0</span>
+    <a href="/static/dashboard.html" class="btn btn-outline"
+       style="color:#fff;border-color:rgba(255,255,255,.35);padding:.4rem 1rem;font-size:.85rem">
+      Exit
+    </a>
+  </div>
+</div>
+
+<div class="container" style="max-width:800px">
+
+  <!-- Nav dots -->
+  <div class="card" style="padding:1rem;margin-top:1.25rem">
+    <div class="q-nav" id="qNav"></div>
+  </div>
+
+  <!-- Question card -->
+  <div class="card" id="questionCard">
+    <p class="text-muted text-center" style="padding:2rem">Loading…</p>
+  </div>
+
+  <!-- Explanation panel (hidden until answered) -->
+  <div class="card hidden" id="explanationPanel">
+    <div id="answerBanner" class="practice-answer-banner"></div>
+    <div class="explanation-box" id="explanationBox"></div>
+    <button class="btn btn-primary btn-block mt-2" id="nextBtn" onclick="nextQuestion()">
+      Next Question →
+    </button>
+  </div>
+
+</div>
+
+<script src="/static/config.js"></script>
+<script src="/static/app.js"></script>
+<script>
+  requireAuth();
+
+  const LETTERS = ["A","B","C","D","E"];
+  let data        = null;   // quiz_start response
+  let currentIdx  = 0;
+  let answered    = {};     // idx → { selected, correct, is_correct }
+  let score       = 0;
+
+  function init() {
+    const raw = sessionStorage.getItem("practice_data");
+    if (!raw) { window.location.href = "/static/dashboard.html"; return; }
+    data = JSON.parse(raw);
+
+    // Build nav dots
+    const nav = document.getElementById("qNav");
+    data.questions.forEach((_, i) => {
+      const btn = document.createElement("button");
+      btn.className = "q-dot";
+      btn.textContent = i + 1;
+      btn.id = "dot-" + i;
+      btn.onclick = () => goTo(i);
+      nav.appendChild(btn);
+    });
+
+    goTo(0);
+  }
+
+  function updateScoreLive() {
+    const total   = Object.keys(answered).length;
+    const correct = Object.values(answered).filter(a => a.is_correct).length;
+    document.getElementById("scoreLive").textContent = correct + " / " + total;
+  }
+
+  function updateNavDot(idx) {
+    const dot = document.getElementById("dot-" + idx);
+    const a   = answered[idx];
+    dot.className = "q-dot" +
+      (a ? (a.is_correct ? " answered correct-dot" : " answered incorrect-dot") : "") +
+      (idx === currentIdx ? " current" : "");
+  }
+
+  function goTo(idx) {
+    currentIdx = idx;
+    const total = data.questions.length;
+    document.getElementById("progressText").textContent =
+      "Question " + (idx + 1) + " of " + total;
+
+    data.questions.forEach((_, i) => updateNavDot(i));
+
+    const q = data.questions[idx];
+    const a = answered[idx];
+
+    // Hide/clear explanation
+    document.getElementById("explanationPanel").classList.add("hidden");
+
+    // Render question
+    const optsHtml = q.options.map((opt, i) => {
+      let cls  = "opt-btn";
+      let icon = LETTERS[i];
+      if (a) {
+        // Already answered — show result state
+        if (opt === a.correct)   { cls += " correct";   icon = "✓"; }
+        if (opt === a.selected && !a.is_correct) { cls += " incorrect"; icon = "✗"; }
+      }
+      return `
+        <li>
+          <button class="${cls}" data-opt="${escapeHtml(opt)}"
+                  ${a ? "disabled" : ""}
+                  onclick="selectOption(${q.id}, this, ${JSON.stringify(idx)})">
+            <span class="opt-letter">${icon}</span>
+            <span>${escapeHtml(opt)}</span>
+          </button>
+        </li>`;
+    }).join("");
+
+    document.getElementById("questionCard").innerHTML = `
+      ${q.scenario ? `<p class="scenario">${escapeHtml(q.scenario)}</p>` : ""}
+      <p class="stem">${escapeHtml(q.stem)}</p>
+      <ul class="options-list">${optsHtml}</ul>`;
+
+    // If already answered, show explanation immediately
+    if (a) showExplanation(idx, q, a);
+  }
+
+  function selectOption(qId, btnEl, idx) {
+    const q        = data.questions[idx];
+    const selected = btnEl.dataset.opt;
+    const correct  = q.correct_opt || "";   // not sent in practice start — fetch below
+    // We don't have correct_opt in the quiz start payload (it's hidden).
+    // Submit this single answer to get the result back.
+    submitSingle(idx, q, selected);
+  }
+
+  async function submitSingle(idx, q, selected) {
+    // Disable all options immediately to prevent double-click
+    document.querySelectorAll("#questionCard .opt-btn").forEach(b => b.disabled = true);
+
+    try {
+      // Submit just this one answer; the session stays open until all answered
+      const result = await api("POST", "/quiz/submit-single", {
+        session_id: data.session_id,
+        question_id: q.id,
+        selected_opt: selected,
+      });
+
+      const is_correct = result.is_correct;
+      answered[idx] = {
+        selected,
+        correct: result.correct_opt,
+        is_correct,
+        explanation: result.explanation,
+        tagline:     result.tagline,
+        images:      result.images || [],
+      };
+
+      if (is_correct) score++;
+      updateScoreLive();
+
+      // Colour the option buttons
+      document.querySelectorAll("#questionCard .opt-btn").forEach(btn => {
+        const opt = btn.dataset.opt;
+        if (opt === result.correct_opt) {
+          btn.classList.add("correct");
+          btn.querySelector(".opt-letter").textContent = "✓";
+        } else if (opt === selected && !is_correct) {
+          btn.classList.add("incorrect");
+          btn.querySelector(".opt-letter").textContent = "✗";
+        }
+      });
+
+      updateNavDot(idx);
+      showExplanation(idx, q, answered[idx]);
+    } catch (err) {
+      alert("Error: " + err.message);
+      document.querySelectorAll("#questionCard .opt-btn").forEach(b => b.disabled = false);
+    }
+  }
+
+  function showExplanation(idx, q, a) {
+    const panel  = document.getElementById("explanationPanel");
+    const banner = document.getElementById("answerBanner");
+    const exBox  = document.getElementById("explanationBox");
+    const nextBtn = document.getElementById("nextBtn");
+    const total   = data.questions.length;
+
+    banner.className = "practice-answer-banner " + (a.is_correct ? "correct" : "incorrect");
+    banner.textContent = a.is_correct ? "✓ Correct!" : "✗ Incorrect — correct answer: " + a.correct;
+
+    let html = "";
+    if (a.tagline)     html += `<div class="tagline">${escapeHtml(a.tagline)}</div>`;
+    if (a.explanation) html += `<div>${escapeHtml(a.explanation).replace(/\n/g,"<br>")}</div>`;
+    if (a.images && a.images.length) {
+      html += `<div class="explanation-images">` +
+        a.images.map(src => `<img src="/static/${escapeHtml(src)}" alt="Diagram" loading="lazy">`).join("") +
+        `</div>`;
+    }
+    exBox.innerHTML = html;
+
+    // Next / Finish button
+    const isLast = idx === total - 1;
+    nextBtn.textContent = isLast ? "Finish Practice" : "Next Question →";
+    nextBtn.onclick     = isLast ? finishPractice : nextQuestion;
+
+    panel.classList.remove("hidden");
+  }
+
+  function nextQuestion() {
+    if (currentIdx + 1 < data.questions.length) goTo(currentIdx + 1);
+  }
+
+  async function finishPractice() {
+    // Submit any remaining unanswered questions (selected_opt = null) to close the session
+    const unanswered = data.questions
+      .map((q, i) => ({ q, i }))
+      .filter(({ i }) => !answered[i]);
+
+    if (unanswered.length) {
+      try {
+        await api("POST", "/quiz/submit", {
+          session_id: data.session_id,
+          answers: unanswered.map(({ q }) => ({ question_id: q.id, selected_opt: null })),
+        });
+      } catch (_) {}
+    }
+
+    const total   = data.questions.length;
+    const correct = Object.values(answered).filter(a => a.is_correct).length;
+    const pct     = total ? Math.round(correct / total * 100) : 0;
+    sessionStorage.removeItem("practice_data");
+    alert(`Practice complete!\n\nScore: ${correct} / ${total} (${pct}%)`);
+    window.location.href = "/static/dashboard.html";
+  }
+
+  init();
+</script>
+</body>
+</html>

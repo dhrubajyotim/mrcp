@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard — MRCP MCQ</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<nav class="navbar">
+  <a href="/static/dashboard.html" class="navbar-brand">MRCP <span>MCQ</span></a>
+  <div class="nav-links">
+    <a href="/static/history.html">History</a>
+    <button class="btn btn-outline" onclick="logout()"
+            style="color:#fff;border-color:rgba(255,255,255,.35);padding:.4rem 1rem">Sign Out</button>
+  </div>
+</nav>
+
+<div class="container" style="max-width:640px">
+
+  <div class="card mt-3">
+    <div class="card-header">Start a Session</div>
+    <div id="alert" class="alert hidden"></div>
+    <form id="quizForm">
+
+      <!-- Mode toggle -->
+      <div class="form-group">
+        <label class="form-label">Mode</label>
+        <div class="mode-toggle">
+          <button type="button" id="modeQuiz"     class="mode-btn active" onclick="setMode('quiz')">
+            <span style="font-size:1.1rem">📝</span>
+            <strong>Quiz Mode</strong>
+            <small>Answer all, then see results</small>
+          </button>
+          <button type="button" id="modePractice" class="mode-btn"        onclick="setMode('practice')">
+            <span style="font-size:1.1rem">🎯</span>
+            <strong>Practice Mode</strong>
+            <small>See answer after each question</small>
+          </button>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Topic</label>
+        <select id="topicSelect" class="form-control">
+          <option value="">All Topics</option>
+        </select>
+      </div>
+
+      <div class="form-group" id="timeLimitGroup">
+        <label class="form-label">Time limit</label>
+        <select id="timeLimitSelect" class="form-control">
+          <option value="">No time limit</option>
+          <option value="300">5 minutes</option>
+          <option value="600">10 minutes</option>
+          <option value="900">15 minutes</option>
+          <option value="1800">30 minutes</option>
+          <option value="3600">1 hour</option>
+        </select>
+      </div>
+
+      <button type="submit" id="startBtn" class="btn btn-primary btn-block btn-lg mt-2">
+        Start Quiz →
+      </button>
+    </form>
+  </div>
+
+  <div class="card">
+    <div class="card-header">Recent Sessions</div>
+    <div id="recentList">
+      <p class="text-muted text-center" style="padding:1rem">Loading…</p>
+    </div>
+    <div class="mt-1">
+      <a href="/static/history.html" style="font-size:.85rem;color:var(--accent)">View full history →</a>
+    </div>
+  </div>
+
+</div>
+
+<script src="/static/config.js"></script>
+<script src="/static/app.js"></script>
+<script>
+  requireAuth();
+
+  let currentMode = 'quiz';
+
+  function setMode(mode) {
+    currentMode = mode;
+    document.getElementById('modeQuiz').classList.toggle('active', mode === 'quiz');
+    document.getElementById('modePractice').classList.toggle('active', mode === 'practice');
+    document.getElementById('timeLimitGroup').style.display = mode === 'practice' ? 'none' : '';
+    document.getElementById('startBtn').textContent =
+      mode === 'practice' ? 'Start Practice →' : 'Start Quiz →';
+  }
+
+  // Load topics
+  api("GET", "/topics").then(data => {
+    const sel = document.getElementById("topicSelect");
+    data.forEach(t => {
+      const o = document.createElement("option");
+      o.value = t.topic;
+      o.textContent = t.topic;
+      sel.appendChild(o);
+    });
+  }).catch(() => {});
+
+  // Slider label
+  // (removed — all questions in topic are used)
+
+  // Recent sessions
+  api("GET", "/history").then(sessions => {
+    const el = document.getElementById("recentList");
+    if (!sessions.length) {
+      el.innerHTML = '<p class="text-muted text-center" style="padding:1rem">No quizzes yet — start one above.</p>';
+      return;
+    }
+    el.innerHTML = sessions.slice(0, 5).map(s => {
+      const pct = s.total ? Math.round(s.score / s.total * 100) : 0;
+      return `
+        <div style="display:flex;justify-content:space-between;align-items:center;
+                    padding:.6rem 0;border-bottom:1px solid var(--border)">
+          <div>
+            <div style="font-size:.875rem;font-weight:600">${escapeHtml(s.topic_filter) || "All Topics"}</div>
+            <div class="text-muted" style="font-size:.775rem">${formatDate(s.started_at)}</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:.75rem">
+            <span class="badge ${scoreBadgeClass(s.score, s.total)}">${s.score}/${s.total} (${pct}%)</span>
+            <a href="/static/results.html?session=${s.session_id}"
+               style="font-size:.8rem;color:var(--accent)">Review</a>
+          </div>
+        </div>`;
+    }).join("");
+  }).catch(() => {
+    document.getElementById("recentList").innerHTML =
+      '<p class="text-muted text-center" style="padding:1rem">Unable to load history.</p>';
+  });
+
+  // Start quiz / practice
+  document.getElementById("quizForm").addEventListener("submit", async e => {
+    e.preventDefault();
+    hideAlert("alert");
+    const btn = document.getElementById("startBtn");
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>Loading questions…';
+
+    const topic     = document.getElementById("topicSelect").value || null;
+    const timeLimit = document.getElementById("timeLimitSelect").value;
+
+    try {
+      const data = await api("POST", "/quiz/start", {
+        topic,
+        time_limit_seconds: currentMode === 'quiz' && timeLimit ? parseInt(timeLimit) : null,
+      });
+      if (currentMode === 'practice') {
+        sessionStorage.setItem("practice_data", JSON.stringify(data));
+        window.location.href = "/static/practice.html";
+      } else {
+        sessionStorage.setItem("quiz_data", JSON.stringify(data));
+        window.location.href = "/static/quiz.html";
+      }
+    } catch (err) {
+      showAlert("alert", err.message);
+      btn.disabled = false;
+      btn.textContent = currentMode === 'practice' ? 'Start Practice →' : 'Start Quiz →';
+    }
+  });
+</script>
+</body>
+</html>

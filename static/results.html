@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Results — MRCP MCQ</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<nav class="navbar">
+  <a href="/static/dashboard.html" class="navbar-brand">MRCP <span>MCQ</span></a>
+  <div class="nav-links">
+    <a href="/static/history.html">History</a>
+    <button class="btn btn-outline" onclick="logout()"
+            style="color:#fff;border-color:rgba(255,255,255,.35);padding:.4rem 1rem">Sign Out</button>
+  </div>
+</nav>
+
+<div class="container" style="max-width:820px">
+
+  <div id="scoreBanner" class="score-banner mt-3" style="background:var(--primary)">
+    <div class="score-big" id="scoreNum">—</div>
+    <div class="score-grade" id="scoreGrade"></div>
+    <div class="score-sub" id="scoreSub">Loading…</div>
+  </div>
+
+  <div class="d-flex gap-1 mb-2">
+    <a href="/static/dashboard.html" class="btn btn-primary">New Quiz</a>
+    <a href="/static/history.html"   class="btn btn-outline">History</a>
+  </div>
+
+  <div id="resultsContainer">
+    <p class="text-muted text-center" style="padding:2rem">Loading results…</p>
+  </div>
+
+</div>
+
+<script src="/static/config.js"></script>
+<script src="/static/app.js"></script>
+<script>
+  requireAuth();
+  const LETTERS = ["A","B","C","D","E"];
+
+  async function load() {
+    let data = null;
+
+    // Fresh submit → stored in sessionStorage
+    const raw = sessionStorage.getItem("quiz_results");
+    if (raw) {
+      data = JSON.parse(raw);
+      sessionStorage.removeItem("quiz_results");
+    } else {
+      // Re-visit via ?session=ID
+      const sid = new URLSearchParams(window.location.search).get("session");
+      if (!sid) { window.location.href = "/static/history.html"; return; }
+      try {
+        data = await api("GET", "/quiz/" + sid + "/results");
+      } catch (err) {
+        document.getElementById("resultsContainer").innerHTML =
+          `<p class="text-danger text-center">${escapeHtml(err.message)}</p>`;
+        return;
+      }
+    }
+
+    // Score banner
+    const pct = data.total ? Math.round(data.score / data.total * 100) : 0;
+    document.getElementById("scoreNum").textContent   = data.score + "/" + data.total;
+    document.getElementById("scoreGrade").textContent = gradeLabel(pct);
+    document.getElementById("scoreSub").textContent   = pct + "% correct";
+    const banner = document.getElementById("scoreBanner");
+    if      (pct >= 70) banner.style.background = "linear-gradient(135deg,#1e8449,#27ae60)";
+    else if (pct >= 50) banner.style.background = "linear-gradient(135deg,#9a6007,#f39c12)";
+    else                banner.style.background = "linear-gradient(135deg,#922b21,#e74c3c)";
+
+    // Results
+    document.getElementById("resultsContainer").innerHTML = data.results.map((r, qi) => {
+      const optsHtml = r.options.map((opt, i) => {
+        const isCorrect  = opt === r.correct_opt;
+        const isSelected = opt === r.selected_opt;
+        let cls = "opt-btn";
+        let icon = LETTERS[i];
+        if (isCorrect)           { cls += " correct";   icon = "✓"; }
+        if (isSelected && !isCorrect) { cls += " incorrect"; icon = "✗"; }
+        return `
+          <li>
+            <button class="${cls}" disabled>
+              <span class="opt-letter">${icon}</span>
+              <span>${escapeHtml(opt)}</span>
+            </button>
+          </li>`;
+      }).join("");
+
+      const unanswered = r.selected_opt === null;
+
+      return `
+        <div class="card">
+          <div class="d-flex justify-between align-center mb-1">
+            <span class="text-muted" style="font-size:.8rem;font-weight:600">Q${qi+1}</span>
+            <span class="badge ${r.is_correct ? "badge-success" : unanswered ? "badge-warning" : "badge-danger"}">
+              ${r.is_correct ? "✓ Correct" : unanswered ? "Not answered" : "✗ Incorrect"}
+            </span>
+          </div>
+          <p class="scenario" style="font-size:.875rem;margin-bottom:.75rem">${escapeHtml(r.scenario)}</p>
+          <p class="stem" style="font-size:.95rem;margin-bottom:.75rem">${escapeHtml(r.stem)}</p>
+          <ul class="options-list">${optsHtml}</ul>
+          <div class="explanation-box">
+            ${r.tagline ? `<div class="tagline">${escapeHtml(r.tagline)}</div>` : ""}
+            <div>${escapeHtml(r.explanation).replace(/\n/g,"<br>")}</div>
+            ${r.images && r.images.length ? `
+              <div class="explanation-images">
+                ${r.images.map(src => `<img src="/static/${escapeHtml(src)}" alt="Explanation diagram" loading="lazy">`).join("")}
+              </div>` : ""}
+          </div>
+        </div>`;
+    }).join("");
+  }
+
+  load();
+</script>
+</body>
+</html>

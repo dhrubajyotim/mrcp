@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quiz — MRCP MCQ</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<!-- Sticky quiz bar -->
+<div class="quiz-bar">
+  <div>
+    <div class="progress-label">MRCP MCQ Portal</div>
+    <div class="progress-text" id="progressText">Loading…</div>
+  </div>
+  <div id="timerWrap" class="hidden">
+    <div class="timer" id="timerDisplay">00:00</div>
+  </div>
+  <button class="btn btn-danger" style="padding:.45rem 1.1rem;font-size:.85rem" onclick="confirmSubmit()">
+    Submit Quiz
+  </button>
+</div>
+
+<div class="container" style="max-width:800px">
+
+  <!-- Question nav dots -->
+  <div class="card" style="padding:1rem;margin-top:1.25rem">
+    <div class="q-nav" id="qNav"></div>
+  </div>
+
+  <!-- Question card -->
+  <div class="card" id="questionCard">
+    <p class="text-muted text-center" style="padding:2rem">Loading…</p>
+  </div>
+
+  <!-- Prev / Next -->
+  <div class="d-flex justify-between mb-2">
+    <button class="btn btn-outline" id="prevBtn" onclick="navigate(-1)">← Previous</button>
+    <button class="btn btn-primary" id="nextBtn" onclick="navigate(1)">Next →</button>
+  </div>
+
+</div>
+
+<script src="/static/config.js"></script>
+<script src="/static/app.js"></script>
+<script>
+  requireAuth();
+
+  const LETTERS = ["A","B","C","D","E"];
+  let quizData    = null;
+  let answers     = {};   // question_id → selected_opt string
+  let currentIdx  = 0;
+  let timerHandle = null;
+  let timeLeft    = 0;
+
+  // ── Init ────────────────────────────────────────────────────────────────────
+  function init() {
+    const raw = sessionStorage.getItem("quiz_data");
+    if (!raw) { window.location.href = "/static/dashboard.html"; return; }
+    quizData = JSON.parse(raw);
+
+    // Build nav dots
+    const nav = document.getElementById("qNav");
+    quizData.questions.forEach((_, i) => {
+      const btn = document.createElement("button");
+      btn.className = "q-dot";
+      btn.textContent = i + 1;
+      btn.id = "dot-" + i;
+      btn.onclick = () => goTo(i);
+      nav.appendChild(btn);
+    });
+
+    // Timer
+    if (quizData.time_limit_seconds) {
+      timeLeft = quizData.time_limit_seconds;
+      document.getElementById("timerWrap").classList.remove("hidden");
+      renderTimer();
+      timerHandle = setInterval(() => {
+        timeLeft--;
+        renderTimer();
+        if (timeLeft <= 0) {
+          clearInterval(timerHandle);
+          submitQuiz(true);
+        }
+      }, 1000);
+    }
+
+    goTo(0);
+  }
+
+  // ── Timer ───────────────────────────────────────────────────────────────────
+  function renderTimer() {
+    const el = document.getElementById("timerDisplay");
+    const m = Math.floor(timeLeft / 60), s = timeLeft % 60;
+    el.textContent = String(m).padStart(2,"0") + ":" + String(s).padStart(2,"0");
+    el.className = "timer" + (timeLeft <= 60 ? " danger" : timeLeft <= 180 ? " warn" : "");
+  }
+
+  // ── Render question ─────────────────────────────────────────────────────────
+  function goTo(idx) {
+    currentIdx = idx;
+    const q     = quizData.questions[idx];
+    const total = quizData.questions.length;
+
+    document.getElementById("progressText").textContent =
+      "Question " + (idx + 1) + " of " + total;
+
+    // Update nav dots
+    quizData.questions.forEach((qq, i) => {
+      const dot = document.getElementById("dot-" + i);
+      dot.className = "q-dot" +
+        (answers[qq.id] ? " answered" : "") +
+        (i === idx ? " current" : "");
+    });
+
+    // Options HTML — use data-opt attribute to avoid inline quote escaping
+    const selOpt = answers[q.id] || null;
+    const optsHtml = q.options.map((opt, i) => `
+      <li>
+        <button class="opt-btn${selOpt === opt ? " selected" : ""}"
+                data-opt="${escapeHtml(opt)}"
+                onclick="selectOption(${q.id}, this)">
+          <span class="opt-letter">${LETTERS[i]}</span>
+          <span>${escapeHtml(opt)}</span>
+        </button>
+      </li>`).join("");
+
+    document.getElementById("questionCard").innerHTML = `
+      <p class="scenario">${escapeHtml(q.scenario)}</p>
+      <p class="stem">${escapeHtml(q.stem)}</p>
+      <ul class="options-list">${optsHtml}</ul>`;
+
+    // Prev / Next buttons
+    const prevBtn = document.getElementById("prevBtn");
+    const nextBtn = document.getElementById("nextBtn");
+    prevBtn.disabled = idx === 0;
+
+    if (idx === total - 1) {
+      nextBtn.textContent = "Review & Submit";
+      nextBtn.className   = "btn btn-success";
+      nextBtn.onclick     = () => confirmSubmit();
+    } else {
+      nextBtn.textContent = "Next →";
+      nextBtn.className   = "btn btn-primary";
+      nextBtn.onclick     = () => navigate(1);
+    }
+  }
+
+  // ── Select option ───────────────────────────────────────────────────────────
+  function selectOption(qId, btnEl) {
+    const opt = btnEl.dataset.opt;
+    answers[qId] = opt;
+
+    // Toggle selected state within this question's option list
+    btnEl.closest(".options-list").querySelectorAll(".opt-btn").forEach(b => {
+      b.classList.toggle("selected", b === btnEl);
+    });
+
+    // Mark nav dot answered
+    const idx = quizData.questions.findIndex(q => q.id === qId);
+    if (idx >= 0) {
+      const dot = document.getElementById("dot-" + idx);
+      dot.className = "q-dot answered" + (idx === currentIdx ? " current" : "");
+    }
+  }
+
+  // ── Navigation ──────────────────────────────────────────────────────────────
+  function navigate(dir) {
+    const next = currentIdx + dir;
+    if (next >= 0 && next < quizData.questions.length) goTo(next);
+  }
+
+  // ── Submit ──────────────────────────────────────────────────────────────────
+  function confirmSubmit() {
+    const answered = Object.keys(answers).length;
+    const total    = quizData.questions.length;
+    const msg = answered < total
+      ? `You have answered ${answered} of ${total} questions. Submit anyway?`
+      : `Submit quiz? All ${total} questions answered.`;
+    if (confirm(msg)) submitQuiz(false);
+  }
+
+  async function submitQuiz(timedOut) {
+    clearInterval(timerHandle);
+    if (timedOut) alert("Time is up! Submitting your answers now.");
+
+    const payload = quizData.questions.map(q => ({
+      question_id: q.id,
+      selected_opt: answers[q.id] || null,
+    }));
+
+    try {
+      const result = await api("POST", "/quiz/submit", {
+        session_id: quizData.session_id,
+        answers: payload,
+      });
+      sessionStorage.setItem("quiz_results", JSON.stringify(result));
+      sessionStorage.removeItem("quiz_data");
+      window.location.href = "/static/results.html";
+    } catch (err) {
+      alert("Failed to submit: " + err.message);
+    }
+  }
+
+  init();
+</script>
+</body>
+</html>
