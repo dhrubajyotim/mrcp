@@ -247,7 +247,10 @@ render services create --confirm `
   --env-var "PYTHON_VERSION=3.11.11" `
   --env-var "TURSO_DATABASE_URL=$tursoUrl" `
   --env-var "TURSO_AUTH_TOKEN=$tursoToken" `
-  --env-var "CORS_ORIGINS=$corsOrigins"
+  --env-var "CORS_ORIGINS=$corsOrigins" `
+  --env-var "MAX_REQUEST_BYTES=262144" `
+  --env-var "AUTH_RATE_LIMIT_PER_MINUTE=8" `
+  --env-var "API_RATE_LIMIT_PER_MINUTE=120"
 ```
 
 Render will print or show your service URL, for example
@@ -269,7 +272,31 @@ Environment variables:
   TURSO_DATABASE_URL=libsql://your-db-your-org.turso.io
   TURSO_AUTH_TOKEN=<your Turso token>
   CORS_ORIGINS=https://your-firebase-project-id.web.app,https://your-firebase-project-id.firebaseapp.com
+  MAX_REQUEST_BYTES=262144
+  AUTH_RATE_LIMIT_PER_MINUTE=8
+  API_RATE_LIMIT_PER_MINUTE=120
 ```
+
+If you are using Render only, without Firebase, set:
+
+```text
+CORS_ORIGINS=*
+```
+
+### Basic abuse protection
+
+The app includes lightweight in-process protection for the free Render setup:
+
+```text
+MAX_REQUEST_BYTES=262144
+AUTH_RATE_LIMIT_PER_MINUTE=8
+API_RATE_LIMIT_PER_MINUTE=120
+```
+
+This protects login/register routes and API routes from simple request floods.
+It does not replace provider-level DDoS protection. For a public app with many
+unknown users, put a custom domain behind Cloudflare and enable WAF/rate-limit
+rules there before forwarding traffic to Render.
 
 ### 3. Deploy frontend to Firebase Hosting
 

@@ -17,3 +17,9 @@ services:
         sync: false
       - key: CORS_ORIGINS
         sync: false
+      - key: MAX_REQUEST_BYTES
+        value: 262144
+      - key: AUTH_RATE_LIMIT_PER_MINUTE
+        value: 8
+      - key: API_RATE_LIMIT_PER_MINUTE
+        value: 120

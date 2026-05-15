@@ -2,6 +2,8 @@ import json
 import logging
 import os
 import random
+import time
+from collections import defaultdict, deque
 from datetime import datetime
 from typing import List, Optional
 
@@ -26,6 +28,11 @@ logger = logging.getLogger("uvicorn.error")
 
 app = FastAPI(title="MRCP MCQ Portal", docs_url="/api/docs", redoc_url=None)
 
+MAX_REQUEST_BYTES = int(os.getenv("MAX_REQUEST_BYTES", str(256 * 1024)))
+AUTH_RATE_LIMIT_PER_MINUTE = int(os.getenv("AUTH_RATE_LIMIT_PER_MINUTE", "8"))
+API_RATE_LIMIT_PER_MINUTE = int(os.getenv("API_RATE_LIMIT_PER_MINUTE", "120"))
+_rate_buckets = defaultdict(deque)
+
 cors_origins = [
     origin.strip()
     for origin in os.getenv("CORS_ORIGINS", "*").split(",")
@@ -39,6 +46,57 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def _client_ip(request: Request) -> str:
+    forwarded_for = request.headers.get("x-forwarded-for", "")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _rate_limit_key(request: Request) -> tuple[str, str]:
+    group = "auth" if request.url.path.startswith("/auth/") else "api"
+    return group, _client_ip(request)
+
+
+def _rate_limit_for_path(path: str) -> int | None:
+    if path.startswith("/static/") or path in {"/", "/health"}:
+        return None
+    if path.startswith("/auth/"):
+        return AUTH_RATE_LIMIT_PER_MINUTE
+    return API_RATE_LIMIT_PER_MINUTE
+
+
+@app.middleware("http")
+async def request_guard(request: Request, call_next):
+    content_length = request.headers.get("content-length")
+    if content_length and content_length.isdigit() and int(content_length) > MAX_REQUEST_BYTES:
+        return JSONResponse(
+            status_code=413,
+            content={"detail": "Request body too large"},
+        )
+
+    limit = _rate_limit_for_path(request.url.path)
+    if limit:
+        now = time.monotonic()
+        key = _rate_limit_key(request)
+        bucket = _rate_buckets[key]
+        while bucket and now - bucket[0] > 60:
+            bucket.popleft()
+        if len(bucket) >= limit:
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "Too many requests. Please wait a minute and try again."},
+                headers={"Retry-After": "60"},
+            )
+        bucket.append(now)
+
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "same-origin"
+    response.headers["X-Frame-Options"] = "DENY"
+    return response
 
 
 @app.get("/health", include_in_schema=False)
@@ -114,6 +172,8 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Email already registered")
     if len(req.password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    if len(req.password.encode("utf-8")) > 72:
+        raise HTTPException(status_code=400, detail="Password cannot be longer than 72 bytes")
     user = User(email=req.email, password_hash=hash_password(req.password))
     db.add(user)
     db.commit()
