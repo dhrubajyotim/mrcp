@@ -1,15 +1,18 @@
 import json
+import logging
 import os
 import random
 from datetime import datetime
 from typing import List, Optional
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, EmailStr
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from auth import create_access_token, get_current_user, hash_password, verify_password
@@ -19,6 +22,7 @@ from models import Base, Question, QuizAnswer, QuizSession, User
 load_dotenv()
 Base.metadata.create_all(bind=engine)
 run_migrations()
+logger = logging.getLogger("uvicorn.error")
 
 app = FastAPI(title="MRCP MCQ Portal", docs_url="/api/docs", redoc_url=None)
 
@@ -40,6 +44,30 @@ app.add_middleware(
 @app.get("/health", include_in_schema=False)
 def health():
     return {"status": "ok"}
+
+
+@app.get("/health/db", include_in_schema=False)
+def db_health():
+    try:
+        with engine.connect() as conn:
+            users = conn.execute(text("SELECT COUNT(*) FROM users")).scalar_one()
+            questions = conn.execute(text("SELECT COUNT(*) FROM questions")).scalar_one()
+        return {"status": "ok", "users": users, "questions": questions}
+    except SQLAlchemyError as exc:
+        logger.exception("Database health check failed")
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Database health check failed", "error": str(exc)},
+        )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.exception("Unhandled error on %s %s", request.method, request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error. Check Render logs for the traceback."},
+    )
 
 
 # ── Schemas ──────────────────────────────────────────────────────────────────

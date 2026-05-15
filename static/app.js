@@ -28,7 +28,13 @@ async function api(method, path, body = null, auth = true) {
   const res = await fetch(API_BASE_URL + path, opts);
   if (res.status === 401 && auth) { removeToken(); window.location.href = "/"; return; }
 
-  const data = await res.json();
+  const text = await res.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch (_) {
+    data = { detail: text || `HTTP ${res.status}` };
+  }
   if (!res.ok) throw new Error(data.detail || "Request failed");
   return data;
 }
