@@ -9,6 +9,8 @@ services:
     envVars:
       - key: SECRET_KEY
         sync: false
+      - key: PYTHON_VERSION
+        value: 3.11.11
       - key: TURSO_DATABASE_URL
         sync: false
       - key: TURSO_AUTH_TOKEN

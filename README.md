@@ -244,6 +244,7 @@ render services create --confirm `
   --start-command 'uvicorn main:app --host 0.0.0.0 --port $PORT' `
   --health-check-path /health `
   --env-var "SECRET_KEY=$secretKey" `
+  --env-var "PYTHON_VERSION=3.11.11" `
   --env-var "TURSO_DATABASE_URL=$tursoUrl" `
   --env-var "TURSO_AUTH_TOKEN=$tursoToken" `
   --env-var "CORS_ORIGINS=$corsOrigins"
@@ -264,6 +265,7 @@ Start Command: uvicorn main:app --host 0.0.0.0 --port $PORT
 Health Check Path: /health
 Environment variables:
   SECRET_KEY=<long random string>
+  PYTHON_VERSION=3.11.11
   TURSO_DATABASE_URL=libsql://your-db-your-org.turso.io
   TURSO_AUTH_TOKEN=<your Turso token>
   CORS_ORIGINS=https://your-firebase-project-id.web.app,https://your-firebase-project-id.firebaseapp.com
